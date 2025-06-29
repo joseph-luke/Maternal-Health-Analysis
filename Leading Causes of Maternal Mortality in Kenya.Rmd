@@ -1,0 +1,12 @@
+---
+ctitle: "Leading Causes of Maternal Mortality in Kenya"
+author: "Joseph Nthumba"
+date: "2025-06-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
