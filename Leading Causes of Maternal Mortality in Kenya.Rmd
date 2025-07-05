@@ -7,10 +7,6 @@ output:
   pdf_document: default
 ---
 
-# Overview
-
-In this notebook, we analyze the leading causes of maternal mortality in Kenya revealed through longitudinal patient-level data from the Kenya Health Information System (2020-2024).
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = FALSE,
@@ -49,19 +45,6 @@ pacman::p_load(
 ```
 
 ```{r}
-# # Subset original dataset for maternal mortality data - Cosmas
-# original_df <- read.csv("../data/raw/data_mortality_joseph.csv")
-#
-# # Filter maternal mortality rows
-# df <- original_df |>
-#   clean_names() |>
-#   filter(gender == "female" & age_years >= 12 & age_years <= 49)
-#
-# # Export for focused use
-# write.csv(df, file = "../data/raw/maternal_mortality_data.csv")
-```
-
-```{r}
 # Import dataset
 df <- read.csv("../data/raw/maternal_mortality_data.csv") |>
   select(-X)
@@ -86,9 +69,6 @@ print(length(unique(df$event)) == nrow(df)) # We have duplicated rows/events
 # Remove all (exactly) duplicated rows
 df <- df[!duplicated(df), ]
 
-# Grab all non-exact duplicates
-# They appear to differ in keph_level (each row is either 4 or 5)
-# Keep level 4 row
 duplicated_rows <- df |>
   group_by(event) |>
   filter(n() > 1) |>
