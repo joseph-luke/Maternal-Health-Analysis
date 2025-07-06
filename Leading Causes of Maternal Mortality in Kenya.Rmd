@@ -5,11 +5,14 @@ date: "2025-06-29"
 output:
   html_document: default
   pdf_document: default
+engine: jupyter
 ---
 
 # Overview
 
-In this notebook, we analyze the leading causes of maternal mortality in Kenya revealed through longitudinal patient-level data from the Kenya Health Information System (2020-2024).
+In this notebook, we analyze the leading causes of maternal mortality in
+Kenya revealed through longitudinal patient-level data from the Kenya
+Health Information System (2020-2024).
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -19,7 +22,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-```{r}
+```{r, include=FALSE}
 # Load libraries
 library(pacman)
 
@@ -44,8 +47,17 @@ pacman::p_load(
   ggiraph,
   rmapshaper,
   smoothr,
-  rKenyaCensus
+  rKenyaCensus,
+  styler,
+  cartogram,
+  units,
+  RColorBrewer,
+  GGally,
+  readxl
 )
+
+# Style document
+styler::style_file("C:/Users/Josep/Documents/Job/CEMA/Maternal Health/Analysis/Leading Causes of Maternal Mortality in Kenya.Rmd")
 ```
 
 ```{r}
@@ -104,105 +116,184 @@ df <- anti_join(df,
 print(length(unique(df$event)) == nrow(df)) # We now have unique rows/events
 ```
 
-Now we define the state space of our dataset. We must precisely specify the values each variable in our dataset is allowed to take.
+Now we define the state space of our dataset. We must precisely specify
+the values each variable in our dataset is allowed to take.
 
-Note that this data seems to be "M&MCCoD" => Mortality(?) and Medical Certificate of Cause of Death
+Note that this data seems to be "M&MCCoD" =\> Mortality(?) and Medical
+Certificate of Cause of Death
 
 From analysis here and in Excel, we find:
 
-- `event` = unique event ID
+-   `event` = unique event ID
 
-- `event_date` = I think the date of reporting. Our closest date to the date of mortality when M&MCCoD  Date and time of Death is missing
+-   `event_date` = I think the date of reporting. Our closest date to
+    the date of mortality when M&MCCoD Date and time of Death is missing
 
-- `organisation_unit_name` = facility title
+-   `organisation_unit_name` = facility title
 
-- `organisation_unit_code` = unique facility code
+-   `organisation_unit_code` = unique facility code
 
-- `m_mc_co_d_date_and_time_of_death` = exact date of death; we should calculate the difference between this and event date and compile a histogram
+-   `m_mc_co_d_date_and_time_of_death` = exact date of death; we should
+    calculate the difference between this and event date and compile a
+    histogram
 
-- `m_mc_co_d_reporting_mode` = N/A, "Brought in dead", "Mortality". We might need to examine if there are differences in "Bid" vs the rest.
+-   `m_mc_co_d_reporting_mode` = N/A, "Brought in dead", "Mortality". We
+    might need to examine if there are differences in "Bid" vs the rest.
 
-- `m_mc_co_d_age` = age at death, I believe. But why is it followed by Alive_Age Unit column? especially because some BID patients have values in this column Does it differ from age_years?
+-   `m_mc_co_d_age` = age at death, I believe. But why is it followed by
+    Alive_Age Unit column? especially because some BID patients have
+    values in this column Does it differ from age_years?
 
-- `m_mc_co_d_alive_age_unit` = N/A, "Years", or "Months". I assume it's the unit for M&MCCoD Age
+-   `m_mc_co_d_alive_age_unit` = N/A, "Years", or "Months". I assume
+    it's the unit for M&MCCoD Age
 
-- `m_mc_co_d_demographic_date_of_admission` = date of admission; I think it's fairly interchangeable with m_mc_co_d_alive_date_of_admission, except that m_mc_co_d_alive_date_of_admission can be paired with m_mc_co_d_alive_date_of_discharge if the patient left the facility alive and passed on later
+-   `m_mc_co_d_demographic_date_of_admission` = date of admission; I
+    think it's fairly interchangeable with
+    m_mc_co_d_alive_date_of_admission, except that
+    m_mc_co_d_alive_date_of_admission can be paired with
+    m_mc_co_d_alive_date_of_discharge if the patient left the facility
+    alive and passed on later
 
-- `m_mc_co_d_alive_date_of_admission` = date of admission; can be paired with m_mc_co_d_alive_date_of_discharge if the patient left the facility alive and passed on later
+-   `m_mc_co_d_alive_date_of_admission` = date of admission; can be
+    paired with m_mc_co_d_alive_date_of_discharge if the patient left
+    the facility alive and passed on later
 
-- `m_mc_co_d_alive_date_of_discharge` = date of discharge; always paired with m_mc_co_d_alive_date_of_admission
+-   `m_mc_co_d_alive_date_of_discharge` = date of discharge; always
+    paired with m_mc_co_d_alive_date_of_admission
 
-- `m_mc_co_d_hospital_ward` = ward in which the patient was treated, I believe (not the ward in which the patient passed - patients with m_mc_co_d_alive_date_of_discharge have reported hospital wards
+-   `m_mc_co_d_hospital_ward` = ward in which the patient was treated, I
+    believe (not the ward in which the patient passed - patients with
+    m_mc_co_d_alive_date_of_discharge have reported hospital wards
 
-- `m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code` = ICD-10-CM and ICD-11 codes used to report standard diagnoses. 94% of records have some sort of text in this ICD code column.
+-   `m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code`
+    = ICD-10-CM and ICD-11 codes used to report standard diagnoses. 94%
+    of records have some sort of text in this ICD code column.
 
-- `m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_cause_of_death` = written diagnosis (non-standard)
+-   `m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_cause_of_death`
+    = written diagnosis (non-standard)
 
-- `m_mc_co_d_state_the_underlying_causes_cause_of_death_icd_11_code` = (should be) list of all underlying causes of death; mixture of standard codes and written diagnoses
+-   `m_mc_co_d_state_the_underlying_causes_cause_of_death_icd_11_code` =
+    (should be) list of all underlying causes of death; mixture of
+    standard codes and written diagnoses
 
-- `m_mc_co_d_state_the_underlying_causes_cause_of_death` = (should be) list of all underlying causes of death; mixture of standard codes and written diagnoses
+-   `m_mc_co_d_state_the_underlying_causes_cause_of_death` = (should be)
+    list of all underlying causes of death; mixture of standard codes
+    and written diagnoses
 
-- `m_mc_co_d_report_chain_of_events_due_to_b_in_order_cause_of_death` = more detail on effect of underlying cause of death on death; in many cases empty or a repetition of cause of death
+-   `m_mc_co_d_report_chain_of_events_due_to_b_in_order_cause_of_death`
+    = more detail on effect of underlying cause of death on death; in
+    many cases empty or a repetition of cause of death
 
-- `m_mc_co_d_report_chain_of_events_due_to_c_in_order_if_applicable_cause_of_death` = more detail on effect of underlying cause of death on death; in many cases empty or a repetition of cause of death
+-   `m_mc_co_d_report_chain_of_events_due_to_c_in_order_if_applicable_cause_of_death`
+    = more detail on effect of underlying cause of death on death; in
+    many cases empty or a repetition of cause of death
 
-- `mccod_report_chain_of_events_due_to_c_in_order_if_applicable_cause_of_death_free_text` = more detail on effect of underlying cause of death on death; in many cases empty or a repetition of cause of death
+-   `mccod_report_chain_of_events_due_to_c_in_order_if_applicable_cause_of_death_free_text`
+    = more detail on effect of underlying cause of death on death; in
+    many cases empty or a repetition of cause of death
 
-- `m_mc_co_d_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text` = more detail on effect of underlying cause of death on death; in many cases empty or a repetition of cause of death
+-   `m_mc_co_d_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text`
+    = more detail on effect of underlying cause of death on death; in
+    many cases empty or a repetition of cause of death
 
-- `mccod_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text` = appears to be a functional duplicate of m_mc_co_d_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text but differs in content. It seems people may report in either or both.
+-   `mccod_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text`
+    = appears to be a functional duplicate of
+    m_mc_co_d_report_chain_of_events_due_to_d_in_order_if_applicable_cause_of_death_free_text
+    but differs in content. It seems people may report in either or
+    both.
 
-- `m_mc_co_d_alive_primary_diagnosis_code` = ICD-10-CM and ICD-11 codes used to report standard diagnoses. not sure, but I believe these are historical diagnoses the patient received. may match their diagnosis at death given in "m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code, ..." columns or differ
+-   `m_mc_co_d_alive_primary_diagnosis_code` = ICD-10-CM and ICD-11
+    codes used to report standard diagnoses. not sure, but I believe
+    these are historical diagnoses the patient received. may match their
+    diagnosis at death given in
+    "m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code,
+    ..." columns or differ
 
-- `m_mc_co_d_alive_primary_diagnosis` = written diagnosis (non-standard). not sure, but I believe these are historical diagnoses the patient received. may match their diagnosis at death given in "m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code, ..." columns or differ
+-   `m_mc_co_d_alive_primary_diagnosis` = written diagnosis
+    (non-standard). not sure, but I believe these are historical
+    diagnoses the patient received. may match their diagnosis at death
+    given in
+    "m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code,
+    ..." columns or differ
 
-- `m_mc_co_d_alive_other_diagnosis_b_code` = codes for other historical diagnoses the patient received. they may have this ("other diagnosis") but not a primary alive diagnosis. Very sparse.
+-   `m_mc_co_d_alive_other_diagnosis_b_code` = codes for other
+    historical diagnoses the patient received. they may have this
+    ("other diagnosis") but not a primary alive diagnosis. Very sparse.
 
-- `m_mc_co_d_alive_other_diagnosis_b` = written diagnosis for other historical diagnosis the patient received. they may have this ("other diagnosis") but not a primary alive diagnosis. Very sparse.
+-   `m_mc_co_d_alive_other_diagnosis_b` = written diagnosis for other
+    historical diagnosis the patient received. they may have this
+    ("other diagnosis") but not a primary alive diagnosis. Very sparse.
 
-- `m_mc_co_d_alive_other_diagnosis_c_code` = codes for other historical diagnoses the patient received. Very sparse.
+-   `m_mc_co_d_alive_other_diagnosis_c_code` = codes for other
+    historical diagnoses the patient received. Very sparse.
 
-- `m_mc_co_d_alive_other_diagnosis_c` = written diagnosis for other historical diagnosis the patient received. Very sparse.
+-   `m_mc_co_d_alive_other_diagnosis_c` = written diagnosis for other
+    historical diagnosis the patient received. Very sparse.
 
-- `m_mc_co_d_alive_mode_of_discharge` = N/A, "Frteddbnqhq", "Itlajlo7zcg", "Qj6opi6idmi", "Pq8gtnvwtzd". Code for mode of discharge (I don't know their meaning)
+-   `m_mc_co_d_alive_mode_of_discharge` = N/A, "Frteddbnqhq",
+    "Itlajlo7zcg", "Qj6opi6idmi", "Pq8gtnvwtzd". Code for mode of
+    discharge (I don't know their meaning)
 
-- `facility` = facility that the patient received treatment at. 186 unique facilities from length(unique())
+-   `facility` = facility that the patient received treatment at. 186
+    unique facilities from length(unique())
 
-- `latitude` = latitude of facility
+-   `latitude` = latitude of facility
 
-- `longitude` = longitude of facility
+-   `longitude` = longitude of facility
 
-- `ward` = ward of facility. 175 unique wards from length(unique())
+-   `ward` = ward of facility. 175 unique wards from length(unique())
 
-- `subcounty` = subcounty of facility. 149 unique subcounties from length(unique())
+-   `subcounty` = subcounty of facility. 149 unique subcounties from
+    length(unique())
 
-- `county` = county of facility. 46 unique counties from length(unique())
+-   `county` = county of facility. 46 unique counties from
+    length(unique())
 
-- `duration_stay_in_hospital` = length of stay in hospital. units unspecified. only 4 records report a time here. Likely days? Time is specified in hours of stay for the records
+-   `duration_stay_in_hospital` = length of stay in hospital. units
+    unspecified. only 4 records report a time here. Likely days? Time is
+    specified in hours of stay for the records
 
-- `hours_of_stay` = length of stay in hospital. only 4 records report a time here.
+-   `hours_of_stay` = length of stay in hospital. only 4 records report
+    a time here.
 
-- `keph_level` = N/A, Level 2-6. level of facility that patient received care in.
+-   `keph_level` = N/A, Level 2-6. level of facility that patient
+    received care in.
 
-- `gender` = filtered; only F
+-   `gender` = filtered; only F
 
-- `date_time` = I'm confused. There are no empty date_time records. I think we'll use this column instead of the other date columns, except for the admission dates (it seems to match event_date).
+-   `date_time` = I'm confused. There are no empty date_time records. I
+    think we'll use this column instead of the other date columns,
+    except for the admission dates (it seems to match event_date).
 
-- `year` = year extracted from date_time column
+-   `year` = year extracted from date_time column
 
-- `month` = month extracted from date_time column
+-   `month` = month extracted from date_time column
 
-- `age_years` = age of the patient (at time of death, I presume)
+-   `age_years` = age of the patient (at time of death, I presume)
 
-- `age_years_categorical` = grouped age categories: "45-49"  "25-29"  "40-44"  "30-34"  "15-19"  "Oct-14" "35-39"  "20-24". There are 553 individuals with "age" Oct-14; this seems to me to be 10-14! Not too relevant, however, as we will use the granular age_years column
+-   `age_years_categorical` = grouped age categories: "45-49" "25-29"
+    "40-44" "30-34" "15-19" "Oct-14" "35-39" "20-24". There are 553
+    individuals with "age" Oct-14; this seems to me to be 10-14! Not too
+    relevant, however, as we will use the granular age_years column
 
-- `number_of_causes_of_morbidity_mortality` = I assume this counts the direct/underlying cause diagnoses; I think we'll drop it because it doesn't seem representative (rows with 0 values in this column have diagnoses)
+-   `number_of_causes_of_morbidity_mortality` = I assume this counts the
+    direct/underlying cause diagnoses; I think we'll drop it because it
+    doesn't seem representative (rows with 0 values in this column have
+    diagnoses)
 
-- `indicators` = "Underlying Cause of Death" is the only value
+-   `indicators` = "Underlying Cause of Death" is the only value
 
-> Quick side note: in the far future, it would be interesting to see if data-reporting standards vary by facility. That might indicate that investing a standardized protocol would be best (and standardized training).
+> Quick side note: in the far future, it would be interesting to see if
+> data-reporting standards vary by facility. That might indicate that
+> investing a standardized protocol would be best (and standardized
+> training).
 
-> Update: as I began parsing the diagnosis information, it occurred to me that records that originate from the same facility are likely more similar to each other than to records from other facilities (i.e., random effect!). Therefore, processing all the records from a facility together will help us extract as much info as efficiently as possible, with an approach tailored to each facility's reporting conventions.
+> Update: as I began parsing the diagnosis information, it occurred to
+> me that records that originate from the same facility are likely more
+> similar to each other than to records from other facilities (i.e.,
+> random effect!). Therefore, processing all the records from a facility
+> together will help us extract as much info as efficiently as possible,
+> with an approach tailored to each facility's reporting conventions.
 
 ```{r}
 # # Below, I played around a little with code, cutting, pasting, etc, to
@@ -284,7 +375,8 @@ From analysis here and in Excel, we find:
 #   filter(number_of_causes_of_morbidity_mortality == 0 | number_of_causes_of_morbidity_mortality == 4)
 ```
 
-We now subset the columns we want and rename them for convenience and clarity
+We now subset the columns we want and rename them for convenience and
+clarity
 
 ```{r}
 df <- df |>
@@ -345,7 +437,8 @@ df <- df |>
 df <- df |> relocate(report_date, .after = id)
 ```
 
-Now, we clean the ages. We round all ages to their integer values to end up with the range [12-49].
+Now, we clean the ages. We round all ages to their integer values to end
+up with the range $$12-49$$.
 
 ```{r}
 # Find all the unique reported ages
@@ -356,7 +449,8 @@ df <- df |>
   mutate(age = as.integer(age))
 ```
 
-Now we clean the dates. We will extract the day, month, and year of each event.
+Now we clean the dates. We will extract the day, month, and year of each
+event.
 
 ```{r}
 # Find the variation in formatting for the event dates
@@ -381,13 +475,16 @@ year(df[year(df$report_date) == 2003, "report_date"]) <- 2023
 df <- df |>
   filter(year(report_date) >= 2020)
 ```
-2003 was meant to be 2023. For increased analytical clarity, I only included 2020-2024 data in our analysis.
 
-# Maternal mortality over time
+2003 was meant to be 2023. For increased analytical clarity, I only
+included 2020-2024 data in our analysis.
 
-We can visualize the incidence of maternal mortality as reported by the dataset
+### Maternal mortality over time
 
-```{r}
+We can visualize the incidence of maternal mortality as reported by the
+dataset
+
+```{r, fig.align='center'}
 # The data range from Jan 24, 2020 to December 30, 2024
 # min(df$report_date)
 # max(df$report_date)
@@ -463,14 +560,15 @@ plot(p)
 ggsave("reported_deaths_trends.png",
   path = "../data/figures",
   width = 10,
-  height = 5,
+  height = 6,
   dpi = 300
 )
 ```
 
-To better see trends, we can also separate by year and plot Locally Estimated Scatterplot Smoothing (LOESS) trendlines:
+To better see trends, we can also separate by year and plot Locally
+Estimated Scatterplot Smoothing (LOESS) trendlines:
 
-```{r, warning=FALSE, message=FALSE}
+```{r, warning=FALSE, message=FALSE, fig.align='center'}
 ggplot(
   data = df_graph_time,
   mapping = aes(
@@ -533,17 +631,17 @@ ggplot(
 
 ggsave("reported_deaths_trends_by_year.png",
   path = "../data/figures",
-  width = 13,
+  width = 10,
   height = 6,
   dpi = 300
 )
 ```
 
-# Maternal mortality by age
+### Maternal mortality by age
 
 We also compile a density plot of the ages of the mothers who passed:
 
-```{r, warning=FALSE, message=FALSE}
+```{r, warning=FALSE, message=FALSE, fig.align='center'}
 # Create a dataframe for the age graphs
 df_graph_age <- df |>
   mutate(year = year(report_date)) |>
@@ -595,7 +693,7 @@ ggplot(
   ) +
   labs(
     title = "Age distribution of maternal mortality<br><span style='font-size:10pt;'>Median age shown for each year</span>",
-    x = "Age",
+    x = "Age at death<br>(Years)",
     y = "Year"
   ) +
   scale_x_continuous(breaks = seq(0, 55, 5), limits = c(12, 49)) +
@@ -608,6 +706,7 @@ ggplot(
       face = "bold"
     ),
     legend.position = "none",
+    axis.title.x = element_markdown(),
     axis.title.y = element_markdown()
   ) +
   coord_flip()
@@ -620,11 +719,16 @@ ggsave("age_of_mothers_at_death.png",
 )
 ```
 
-I downloaded health facility coordinate data from https://hub.arcgis.com/datasets/Esri-EA::health-facilities-in-kenya/explore to fill in the lat.-long. data for facilities that have it missing.
+I downloaded health facility coordinate data from
+<https://hub.arcgis.com/datasets/Esri-EA>::health-facilities-in-kenya/explore
+to fill in the lat.-long. data for facilities that have it missing.
 
-Update - MoH has them at https://kmhfr.health.go.ke/public/facilities
+Update - MoH has them at <https://kmhfr.health.go.ke/public/facilities>
 
-I found the unique facility url for all the facilities that were missing coordinate data. Below, we loop through these urls and try to extract as much location information as possible, and then we input manually discovered data (Google maps).
+I found the unique facility url for all the facilities that were missing
+coordinate data. Below, we loop through these urls and try to extract as
+much location information as possible, and then we input manually
+discovered data (Google maps).
 
 ```{r}
 # Find the facilities + facility codes that are missing coordinates
@@ -684,7 +788,8 @@ df_find_coords <- df |>
 # write_csv(df_find_coords, "../data/raw/find_coordinates.csv")
 ```
 
-We import the urls that we found through python, and here extract the textual content of the facility sites.
+We import the urls that we found through python, and here extract the
+textual content of the facility sites.
 
 ```{r}
 # Import all of the facilities' data we obtained from MoH
@@ -723,7 +828,8 @@ df_facility_urls_missing <- df_facility_urls |>
 facility_moh_data <- read_rds(file = "../data/raw/facility_moh_data.rds")
 ```
 
-Finally, we use regular expressions to extract as much location data from the sites as possible.
+Finally, we use regular expressions to extract as much location data
+from the sites as possible.
 
 ```{r}
 # # Made this into a function that I could apply
@@ -808,7 +914,8 @@ Finally, we use regular expressions to extract as much location data from the si
 df_extracted_locations <- read_rds(file = "../data/processed/df_extracted_locations.rds")
 ```
 
-Now we join the facilities without location data to the discovered location data
+Now we join the facilities without location data to the discovered
+location data
 
 ```{r}
 df_facility_urls_found <- as.data.frame(df_facility_urls_found) |>
@@ -851,8 +958,8 @@ df <- df |>
   )
 ```
 
-
-We repeat the above process for facilities that are missing their facility level
+We repeat the above process for facilities that are missing their
+facility level
 
 ```{r}
 df_find_levels <- df |>
@@ -953,24 +1060,30 @@ setDT(df)[setDT(df_facility_urls_found),
 ]
 ```
 
-Finally, we have obtained location (ward, subcounty, county) and level data for all facilities.
+Finally, we have obtained location (ward, subcounty, county) and level
+data for all facilities.
 
-# Geographic distribution of maternal mortality
+### Geographic distribution of maternal mortality
 
-We first need to harmonize the county, subcounty, and ward names in our dataset to those in the map dataframe.
+We first need to harmonize the county, subcounty, and ward names in our
+dataset to those in the map dataframe.
 
 ```{r, include = FALSE}
 # Import shapefile to graph
-ken_shp <- st_read("../data/raw/kenya_map/gadm41_KEN_1.shp", quiet = TRUE)
-# ms_simplify(keep = 0.0005, keep_shapes = TRUE)
-# ms_simplify(keep = 0.001) |>
-# smoothr::smooth(method = "ksmooth", smoothness = 2)
-# ms_simplify(keep = 0.001)
+kenya <- st_read("../data/raw/kenya_map/gadm41_KEN_1.shp", quiet = TRUE)
 
-# ken_shp <- st_read("../data/raw/kenya_wards/kenya_wards.shp", quiet = TRUE)
+# Simplify KE shapefile
+kenya <- kenya |>
+  st_as_sf() |>
+  st_make_valid() |>
+  st_transform(3857) |>
+  # ms_simplify(keep = 0.0025, keep_shapes = TRUE)
+  ms_simplify(keep = 0.005, keep_shapes = TRUE)
+
+# kenya <- st_read("../data/raw/kenya_wards/kenya_wards.shp", quiet = TRUE)
 
 # Find the county names used in the shp file
-glimpse(ken_shp)
+glimpse(kenya)
 
 # First, remove 'County', 'Sub County', and 'Ward' from the location columns in df
 # new_df <- df
@@ -978,32 +1091,34 @@ glimpse(ken_shp)
 # new_df$subcounty |> unique() |> sort() |> head(30)
 # new_df$ward |> unique() |> sort() |> head(30)
 
-# ken_shp$county <- str_replace(ken_shp$county, "County", "") |> str_trim()
-# ken_shp$county <- str_to_title(ken_shp$county)
+# kenya$county <- str_replace(kenya$county, "County", "") |> str_trim()
+# kenya$county <- str_to_title(kenya$county)
 
-ken_shp$county <- str_replace(ken_shp$NAME_1, "County", "") |> str_trim()
-ken_shp$county <- str_to_title(ken_shp$NAME_1)
+kenya$county <- str_replace(kenya$NAME_1, "County", "") |> str_trim()
+kenya$county <- str_to_title(kenya$NAME_1)
 
-# ken_shp$subcounty <- str_replace(ken_shp$subcounty, "Sub County", "") |> str_trim()
-# ken_shp$subcounty <- str_to_title(ken_shp$subcounty)
+# kenya$subcounty <- str_replace(kenya$subcounty, "Sub County", "") |> str_trim()
+# kenya$subcounty <- str_to_title(kenya$subcounty)
 #
-# ken_shp$ward <- str_replace(ken_shp$ward, "Ward", "") |> str_trim()
-# ken_shp$ward <- str_to_title(ken_shp$ward)
+# kenya$ward <- str_replace(kenya$ward, "Ward", "") |> str_trim()
+# kenya$ward <- str_to_title(kenya$ward)
 
 df$county <- str_replace(df$county, "County", "") |> str_trim()
 df$subcounty <- str_replace(df$subcounty, "Sub County", "") |> str_trim()
 df$ward <- str_replace(df$ward, "Ward", "") |> str_trim()
 ```
 
-**Note:** Was trying to get at least subcounty resolution, but will take too long to harmonize the geo-references. Therefore, for now I'll stick to the county-level resolution.
+**Note:** Was trying to get at least subcounty resolution, but will take
+too long to harmonize the geo-references. Therefore, for now I'll stick
+to the county-level resolution.
 
 ```{r, include = FALSE}
-# Find all terms in df$county that aren't in ken_shp$county and vice versa
-# setdiff(df$county, ken_shp$county)
-# setdiff(ken_shp$county, df$county)
+# Find all terms in df$county that aren't in kenya$county and vice versa
+# setdiff(df$county, kenya$county)
+# setdiff(kenya$county, df$county)
 
-setdiff(df$county, ken_shp$NAME_1)
-setdiff(ken_shp$NAME_1, df$county)
+setdiff(df$county, kenya$NAME_1)
+setdiff(kenya$NAME_1, df$county)
 
 # Change df$county references to match the shp references
 df <- df |>
@@ -1012,7 +1127,6 @@ df <- df |>
     county = ifelse(county == "Tharaka Nithi", "Tharaka-Nithi", county),
     county = ifelse(county == "Muranga", "Murang'a", county)
   )
-
 
 # Grab population data from rKenyaCensus
 county_pop <- V4_T2.40
@@ -1036,16 +1150,16 @@ county_pop <- county_pop |>
 ```{r}
 # To do later: harmonize subcounty and ward df and shp references
 
-# # Find all terms in df$subcounty that aren't in ken_shp$subcounty
-# setdiff(df$subcounty, ken_shp$subcounty)
+# # Find all terms in df$subcounty that aren't in kenya$subcounty
+# setdiff(df$subcounty, kenya$subcounty)
 #
-# # Find all terms in df$ward that aren't in ken_shp$ward
-# setdiff(df$ward, ken_shp$ward)
+# # Find all terms in df$ward that aren't in kenya$ward
+# setdiff(df$ward, kenya$ward)
 #
-# standard_subcounties <- as.data.frame(ken_shp)
+# standard_subcounties <- as.data.frame(kenya)
 # standard_subcounties <- standard_subcounties |> select(subcounty) |> unlist() |> unique()
 #
-# standard_wards <- as.data.frame(ken_shp)
+# standard_wards <- as.data.frame(kenya)
 # standard_wards <- standard_wards |> select(ward) |> unlist() |> unique()
 #
 # write.csv(standard_subcounties, "standard_subcounties.csv")
@@ -1061,56 +1175,426 @@ county_pop <- county_pop |>
 ```
 
 ```{r}
-county_pop$BirthsFiveYears <- (county_pop$BirthsFiveYears / sum(county_pop$BirthsFiveYears))
-
-# Join the df to the shp and graph
+# Collect data for graphing
 df_map <- df |>
   # group_by(county, year = year(report_date)) |>
   group_by(county) |>
   summarise(count = n()) |>
   ungroup()
 
+# Add birth data to the mapping df
 df_map <- left_join(df_map,
   county_pop,
   by = join_by(county == County)
 )
 
-# Non-transformed version
-# df_map2 <- left_join(df_map,
-#                       ken_shp,
-#                       by = join_by(county == NAME_1))
+# Normalise mortality count data by births (time periods don't match, but may be helpful)
+df_map_normalized <- df_map |>
+  mutate(MortalityRatio = (count * 100000) / BirthsFiveYears)
 
-ken_sfc <- st_geometry(ken_shp)
+kenya_data <- kenya |>
+  left_join(st_drop_geometry(df_map_normalized),
+    by = join_by(NAME_1 == county)
+  )
+```
 
-region_areas <- st_area(ken_shp) |>
-  as.numeric()
-ken_centroids <- st_centroid(ken_sfc)
+Now, we plot a map. We colour based on number of reported deaths
+(2020-2024) / number of births (2015-2019) (time periods don't match,
+but regardless, this normalisation may be helpful).
 
-ken_scale <- (ken_sfc - ken_centroids) * (median(region_areas) / region_areas) + ken_centroids
-ken_scale_sf <- st_set_geometry(ken_shp, ken_scale)
+```{r, fig.width=6, fig.height=6, fig.align='center'}
+# Bin data for clearer choropleth map
+kenya_data <- kenya_data |>
+  mutate(MR_bin = cut(
+    MortalityRatio,
+    breaks = c(0, 70, 200, 400, 600, 800, Inf),
+    labels = c("0-70", "70-200", "200-400", "400-600", "600-800", "800+"),
+    include.lowest = TRUE,
+    right = TRUE
+  ))
 
-# Transformed version
-df_map2 <- left_join(df_map,
-  ken_scale_sf,
-  by = join_by(county == NAME_1)
-)
-
-# Graph the total count by county
-gmap <- ggplot(df_map2) +
-  geom_sf_interactive(aes(
-    fill = count,
-    geometry = geometry,
-    tooltip = county
-  )) +
-  scale_fill_viridis_c(
+ggplot(kenya_data) +
+  geom_sf(aes(fill = MR_bin), color = "grey50", linewidth = 0.08) +
+  scale_fill_viridis_d(
     option = "rocket",
     direction = -1,
-    breaks = seq(0, 3100, by = 500)
+    na.value = "grey80", # For missing data
+    name = "Maternal mortality<br>(per 100,000 live births)",
+    guide = guide_legend(reverse = TRUE) # Highest value at top
   ) +
-  theme_void()
+  coord_sf() +
+  theme_void() +
+  labs(
+    title = "Reported maternal mortality rate by county<br><span style='font-size:12pt;'>Mortality counts: 2020-2024 / Total live births: 2015-2019</span>"
+  ) +
+  theme(
+    plot.title = element_markdown(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    legend.text = element_text(size = 10),
+    legend.title = element_markdown(hjust = 0.5, size = 11),
+    plot.title.position = "plot",
+    plot.caption.position = "plot"
+  )
 
-girafe(ggobj = gmap)
+ggsave("maternal_mortality_map.png",
+  path = "../data/figures",
+  width = 6,
+  height = 6,
+  dpi = 300,
+  bg = "white"
+)
 ```
+
+To more clearly visualise the rates reported by the counties, we can
+facet by level of MMR.
+
+```{r, fig.width=10, fig.height=15, fig.align='center'}
+# Obtain outline of Kenya
+kenya_outline <- kenya_data |>
+  st_union() |>
+  st_as_sf()
+
+p_list <- list()
+
+mr_bins <- factor(c("0-70", "70-200", "200-400", "400-600", "600-800", "800+"),
+  labels = c("0-70", "70-200", "200-400", "400-600", "600-800", "800+"),
+  levels = c("0-70", "70-200", "200-400", "400-600", "600-800", "800+")
+)
+
+# County colors
+mr_colors <- c(
+  "#FAEBDDFF", "#F69C73FF", "#E83F3FFF",
+  "#A11A5BFF", "#4C1D4FFF", "#00030CFF"
+)
+
+# Darker title colors
+mr_colors_titles <- c(
+  "#D4B099FF", "#D07C54FF", "#B22D2DFF",
+  "#7A1245FF", "#32143FFF", "#00030CFF"
+)
+
+# Darker label colors
+mr_colors_labels <- c(
+  "#A65A2A", "#B03E1D", "#8B1E1E",
+  "#600F2C", "#32143FFF", "#000000"
+)
+
+# Dictionary: key = bin, value = color
+names(mr_colors) <- mr_bins
+
+# Facet by MMR bin
+for (i in seq_along(mr_bins)) {
+  mr_bin <- mr_bins[[i]]
+
+  kenya_data_facet <- kenya_data |>
+    mutate(
+      focus = factor(
+        ifelse(MR_bin == mr_bin, as.character(mr_bin), "grey90"),
+        levels = c(as.character(mr_bin), "grey90")
+      )
+    )
+
+  plot_colors <- c(setNames(mr_colors[as.character(mr_bin)], as.character(mr_bin)), "grey90" = "grey90")
+
+  # Prepare label data for the counties in focus
+  label_data <- kenya_data_facet |>
+    filter(MR_bin == mr_bin) |>
+    mutate(
+      coords = st_coordinates(st_centroid(geometry)),
+      x = coords[, 1],
+      y = coords[, 2]
+    ) |>
+    # Manually label placement to avoid overlap
+    mutate(
+      x = case_when(
+        NAME_1 == "Homa Bay" ~ x - 30000,
+        NAME_1 == "Nyamira" ~ x + 20000,
+        NAME_1 == "Bungoma" ~ x - 20000,
+        NAME_1 == "Elgeyo-Marakwet" ~ x + 10000,
+        NAME_1 == "Tharaka-Nithi" ~ x + 20000,
+        NAME_1 == "Nyeri" ~ x - 10000,
+        NAME_1 == "Uasin Gishu" ~ x + 20000,
+        NAME_1 == "Kakamega" ~ x + 50000,
+        NAME_1 == "Busia" ~ x - 20000,
+        NAME_1 == "Nairobi" ~ x - 30000,
+        NAME_1 == "Machakos" ~ x + 50000,
+        NAME_1 == "Murang'a" ~ x + 30000,
+        NAME_1 == "Mombasa" ~ x - 10000,
+        NAME_1 == "Kisumu" ~ x - 10000,
+        NAME_1 == "Embu" ~ x + 25000,
+        NAME_1 == "Kirinyaga" ~ x - 30000,
+        NAME_1 == "Trans Nzoia" ~ x - 12000,
+        TRUE ~ x
+      ),
+      y = case_when(
+        NAME_1 == "Homa Bay" ~ y + 14000,
+        NAME_1 == "Nyamira" ~ y - 20000,
+        NAME_1 == "Bungoma" ~ y + 20000,
+        NAME_1 == "Eldoret" ~ y - 10000,
+        NAME_1 == "Elgeyo-Marakwet" ~ y - 30000,
+        NAME_1 == "Tharaka-Nithi" ~ y + 20000,
+        NAME_1 == "Nyeri" ~ y - 7000,
+        NAME_1 == "Uasin Gishu" ~ y + 20000,
+        NAME_1 == "Kakamega" ~ y - 20000,
+        NAME_1 == "Busia" ~ y + 10000,
+        NAME_1 == "Nairobi" ~ y - 20000,
+        NAME_1 == "Machakos" ~ y + 20000,
+        NAME_1 == "Murang'a" ~ y + 30000,
+        NAME_1 == "Mombasa" ~ y - 15000,
+        NAME_1 == "Kisumu" ~ y - 15000,
+        NAME_1 == "Embu" ~ y + 30000,
+        NAME_1 == "Kirinyaga" ~ y - 20000,
+        NAME_1 == "Trans Nzoia" ~ y + 25000,
+        TRUE ~ y
+      )
+    )
+
+  # Graph maps
+  p <- ggplot(data = kenya_data_facet) +
+    geom_sf(aes(fill = focus, color = focus, alpha = focus), linewidth = 0.3) +
+    scale_fill_manual(values = plot_colors) +
+    scale_color_manual(values = c("black", "transparent")) +
+    scale_alpha_manual(values = c(1, 0.8)) +
+    labs(title = mr_bin) +
+    coord_sf(clip = "off") +
+    theme_void() +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold",
+        size = 14,
+        color = mr_colors_titles[[i]]
+      ),
+      legend.position = "none"
+    ) +
+    geom_label(
+      data = label_data,
+      aes(x = x, y = y, label = NAME_1),
+      size = 3,
+      color = mr_colors_labels[[i]],
+      fill = "white",
+      label.size = NA,
+      label.padding = unit(0.19, "lines"),
+      label.r = unit(0.4, "lines"),
+      fontface = "bold",
+      alpha = 0.85
+    )
+
+  p_list[[i]] <- p
+}
+
+# Combine all facets into one plot
+combined_plot <- wrap_plots(p_list, nrow = 3, ncol = 2) +
+  plot_annotation(
+    title = "Reported maternal mortality rate (per 100,000 live births) <br><span style='font-size:12pt;'>Mortality counts: 2020-2024 / Total live births: 2015-2019</span>",
+    theme = theme(
+      plot.title = element_markdown(
+        hjust = 0.5,
+        face = "bold"
+      ),
+      plot.title.position = "plot",
+      plot.caption.position = "plot"
+    )
+  ) +
+  plot_layout(
+    widths = c(1, 1),
+    heights = c(1, 1, 1)
+  ) &
+  theme(plot.margin = margin(5, 5, 5, 5))
+
+print(combined_plot)
+
+ggsave("faceted_maternal_mortality_map.png",
+  plot = combined_plot,
+  path = "../data/figures",
+  width = 10,
+  height = 15,
+  dpi = 300
+)
+```
+
+To facilitate more granular quantitative comparisons between the county
+  rates, we provide a modified Cleveland dot plot here (slight jitter for overlapping points to reduce overplotting):
+
+```{r fig.height=9, fig.width=8, fig.align='center'}
+# Subset data to graph
+df_county_year <- df |>
+  mutate(year = year(report_date)) |>
+  group_by(county, year) |>
+  summarise(
+    count = n(),
+    .groups = "drop"
+  )
+
+# Jitter repeated county count values to prevent overplotting
+df_county_year <- df_county_year |>
+  group_by(county, count) |>
+  mutate(
+    # If n() (duplicates) > 1, find evenly spaced values between -0.1 and 0.1 and add
+    offset = if (n() > 1) {
+      jitter_seq <- seq(-0.1, 0.1,
+        length.out = n()
+      )[row_number()]
+    } else {
+      rep(0, n())
+    }
+  ) |>
+  ungroup() |>
+  mutate(
+    count = count + offset,
+    count = ifelse(count < 1, 1 + 1e-3, count) # If value is <1, just make it 1
+  ) |>
+  select(-offset)
+
+# Graph
+ggplot(
+  data = df_county_year,
+  mapping = aes(
+    x = reorder(county, count, FUN = median),
+    y = count
+  )
+) +
+  geom_line(aes(group = county), alpha = 0.6, color = "grey40") +
+  geom_point(
+    aes(fill = as.character(year)),
+    color = "black",
+    size = 3,
+    shape = 21,
+    alpha = 1
+  ) +
+  scale_y_continuous(
+    trans = "log10",
+    breaks = c(1, 10, 100, 1000)
+  ) +
+  scale_fill_brewer(
+    palette = "RdPu",
+    name = "Year",
+    guide = guide_legend(reverse = TRUE)
+  ) + # Highest value at top)
+  coord_flip() +
+  labs(
+    title = "Reported maternal deaths<br><span style='font-size:11pt;'>Jan 2020-Dec 2024</span>",
+    x = "County",
+    y = "Count<br>(log<sub><span style='font-size:8pt;'>10</sub></span> scale)<br><span style='font-size:11pt'>(not yet normalised)</span>"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_markdown(
+      hjust = 0.5,
+      face = "bold",
+      margin = margin(b = 20)
+    ),
+    axis.title.x = element_markdown(),
+    legend.justification = "center",
+    legend.title = element_text(hjust = 0.5)
+  )
+
+ggsave("counts_by_county_and_year.png",
+  path = "../data/figures",
+  width = 8,
+  height = 9,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+### Leading causes of maternal mortlaity: clinical perspective
+
+Here, we finally analyse what the database reports to be the causes of
+maternal mortality. For now, we will simply look at the column
+`m_mc_co_d_report_disease_or_condition_directly_leading_to_death_on_line_a_code`,
+which provides ICD-10-CM and ICD-11 codes for the patients' leading
+cause of death. Later, we will need to do more intensive analysis of each
+patient's full clinical history/the comorbidities reported across all
+the dataset's diagnostic columns.
+
+```{r}
+# Saved workspace
+# save.image(file = "analysis_workspace.RData")
+# Load workspace
+load("analysis_workspace.RData")
+# Then, load libraries using pacman chunk above
+```
+
+Extract ICD column. Convert to lowercase and remove all non-alphanumeric characters, and compare with downloaded icd-10 and icd-11 codes.
+
+```{r}
+# Extract unique codes (~2000)
+# unique_codes <- df |>
+#   filter(!is.na(direct_cause_of_death_code)) |>
+#   mutate(
+#   code = direct_cause_of_death_code,
+#   temp_extracted = str_extract(direct_cause_of_death_code, "^[^ /\\\\&,]+"),
+#   final_code = if_else(is.na(temp_extracted), code, temp_extracted),
+#   final_code = str_to_lower(final_code),
+#   final_code = str_replace_all(final_code, "[^a-z0-9]", "")  # remove non-alphanumeric
+# ) |>
+#   filter(!is.na(final_code)) |>
+#   pull(final_code) |> # Grab elements from column using pull
+#   unique()
+
+# Will be a little wild and see if the encoding can take care of things
+unique_codes <- df |>
+  filter(!is.na(direct_cause_of_death_code)) |>
+  mutate(
+  code = direct_cause_of_death_code,
+  code = str_to_lower(code),
+  code = str_replace_all(code, "[^a-z0-9]", "")  # remove non-alphanumeric
+) |>
+  filter(!is.na(code)) |>
+  pull(code) |> # Grab elements from column using pull
+  unique()
+
+# Import and clean ICD 10 codes
+df_icd_10 <- read_xlsx("../data/raw/icd_10_codes.xlsx") |>
+  clean_names() |>
+  rename(
+    description = short_description_valid_icd_10_fy2025
+  ) |>
+  select(code,
+         description) |>
+  mutate(
+    across(
+      everything(),
+      str_to_lower
+    ),
+    code = str_replace_all(code, "[^a-z0-9]", "")
+  )
+
+
+# Import and clean ICD 11 codes
+df_icd_11 <- read_csv("../data/raw/icd_11_codes.csv",
+                           col_names = FALSE) |>
+  clean_names() |>
+
+  rename(
+    code = x1,
+    description = x2
+  ) |>
+  mutate(
+    across(
+      everything(),
+      str_to_lower
+    ),
+    code = str_replace_all(code, "[^a-z0-9]", "")
+  )
+
+# Join into 1 ICD dataframe
+df_icd_codes <- bind_rows(df_icd_10,
+                          df_icd_11)
+
+# Export for ML in python:
+write_csv(df_icd_codes,
+          "../data/raw/icd_codes.csv")
+write_csv(data.frame(code = as.character(unique_codes)),
+          "../data/raw/dataset_codes.csv") # make sure to open as str in python
+
+```
+
+
+
 
 
 

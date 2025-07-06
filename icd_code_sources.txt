@@ -1,0 +1,5 @@
+icd 10 codes:
+https://www.cms.gov/medicare/coordination-benefits-recovery/overview/icd-code-lists
+
+icd 11 codes:
+https://gist.github.com/pigeonflight/9a146e8bad13b44dab5585c6fa197046#file-icdcodes-csv
