@@ -1523,18 +1523,19 @@ Extract ICD column. Convert to lowercase and remove all non-alphanumeric charact
 
 ```{r}
 # Extract unique codes (~2000)
-# unique_codes <- df |>
-#   filter(!is.na(direct_cause_of_death_code)) |>
-#   mutate(
-#   code = direct_cause_of_death_code,
-#   temp_extracted = str_extract(direct_cause_of_death_code, "^[^ /\\\\&,]+"),
-#   final_code = if_else(is.na(temp_extracted), code, temp_extracted),
-#   final_code = str_to_lower(final_code),
-#   final_code = str_replace_all(final_code, "[^a-z0-9]", "")  # remove non-alphanumeric
-# ) |>
-#   filter(!is.na(final_code)) |>
-#   pull(final_code) |> # Grab elements from column using pull
-#   unique()
+
+# First, replace newlines with '&'
+# Next, we note that 'respiratory failure' in the column was given as Cb41 in another column
+# Also, no code provided for unparseable code "acute respiratory failure"
+df <- df |>
+  mutate(
+    direct_cause_of_death_code = str_replace_all(direct_cause_of_death_code, "\n", "&"),
+    direct_cause_of_death_code = case_when(
+      direct_cause_of_death_code == "Respiratory Failure" ~ "Cb41",
+      direct_cause_of_death_code == "Acute Respiratory Failure" ~ NA_character_,
+      TRUE ~ direct_cause_of_death_code
+    )
+  )
 
 # Will be a little wild and see if the encoding can take care of things
 unique_codes <- df |>
@@ -1548,8 +1549,10 @@ unique_codes <- df |>
   pull(code) |> # Grab elements from column using pull
   unique()
 
+# Next, import, clean, and join ICD dictionaries
+
 # Import and clean ICD 10 codes
-df_icd_10 <- read_xlsx("../data/raw/icd_10_codes.xlsx") |>
+df_icd_10_us <- read_xlsx("../data/raw/icd_10_us_codes.xlsx") |>
   clean_names() |>
   rename(
     description = short_description_valid_icd_10_fy2025
@@ -1564,9 +1567,28 @@ df_icd_10 <- read_xlsx("../data/raw/icd_10_codes.xlsx") |>
       str_to_lower
     ),
     # code = str_replace_all(code, "[^a-z0-9]", "")
-  )
+  ) |>
+  drop_na(code)
 
-# Import and clean ICD 10 codes
+# Import and clean ICD 11 unknown provenance (up) codes
+df_icd_11_up <- read_csv("../data/raw/icd_11_up_codes.csv",
+  col_names = FALSE
+) |>
+  clean_names() |>
+  rename(
+    code = x1,
+    description = x2
+  ) |>
+  mutate(
+    across(
+      everything(),
+      str_to_lower
+    ),
+    # code = str_replace_all(code, "[^a-z0-9]", "")
+  ) |>
+  drop_na(code)
+
+# Import and clean ICD 10 who codes
 df_icd_10_who <- read_csv("../data/raw/icd_10_who_codes.csv") |>
   clean_names() |>
   rename(
@@ -1583,16 +1605,19 @@ df_icd_10_who <- read_csv("../data/raw/icd_10_who_codes.csv") |>
       str_to_lower
     ),
     # code = str_replace_all(code, "[^a-z0-9]", "")
-  )
+  ) |>
+  drop_na(code)
 
-# Import and clean ICD 11 codes
-df_icd_11 <- read_csv("../data/raw/icd_11_codes.csv",
-  col_names = FALSE
-) |>
+# Import and clean ICD 10 south africa (sa) codes
+df_icd_10_sa <- read_xlsx("../data/raw/icd_10_sa_codes.xlsx") |>
   clean_names() |>
   rename(
-    code = x1,
-    description = x2
+    code = icd10_3_code,
+    description = icd10_3_code_desc
+  ) |>
+  select(
+    code,
+    description
   ) |>
   mutate(
     across(
@@ -1600,26 +1625,53 @@ df_icd_11 <- read_csv("../data/raw/icd_11_codes.csv",
       str_to_lower
     ),
     # code = str_replace_all(code, "[^a-z0-9]", "")
-  )
+  ) |>
+  drop_na(code)
 
+# Import and clean ICD 11 who codes
+df_icd_11_who <- read_xlsx("../data/raw/icd_11_who_codes.xlsx") |>
+  clean_names() |>
+  rename(
+    description = title
+  ) |>
+  mutate(
+    block_id = str_extract(block_id, "(?<=-).*"),
+    code = if_else(is.na(code), block_id, code)
+  ) |> # Grab general (unspecified?) codes from block_id if code is missing
+  select(
+    code,
+    description
+  ) |>
+  mutate(
+    across(
+      everything(),
+      str_to_lower
+    ),
+    description = str_replace_all(description, "^[^a-z0-9]*", "")
+  ) |>
+  drop_na(code)
+```
+
+```{r}
 # Join into 1 ICD dataframe
 df_icd_codes <- bind_rows(
-  df_icd_10,
+  df_icd_10_us,
+  df_icd_11_up,
+  df_icd_10_sa,
   df_icd_10_who,
-  df_icd_11
+  df_icd_11_who,
 )
 
 # Export for ML in python:
 write_csv(
   df_icd_codes,
-  "../data/raw/icd_codes.csv"
+  "../data/raw/all_icd_codes.csv"
 )
 write_csv(
   data.frame(code = as.character(unique_codes)),
   "../data/raw/dataset_codes.csv"
 ) # make sure to open as str in python
 ```
-
 
 
 

@@ -1,8 +1,21 @@
-icd 10 codes:
+icd 10 us codes:
 https://www.cms.gov/medicare/coordination-benefits-recovery/overview/icd-code-lists
+icd_10_us_codes.xlsx
+
+icd 11 unknown provenance (up) codes:
+https://gist.github.com/pigeonflight/9a146e8bad13b44dab5585c6fa197046#file-icdcodes-csv
+icd_11_up_codes.csv
+
+----------------------------------------------------------------------------------------------------
 
 icd 10 who codes:
+icd_10_who_codes.csv
 https://www.kaggle.com/datasets/gingfrecs03/icd-10-version2019
 
-icd 11 codes:
-https://gist.github.com/pigeonflight/9a146e8bad13b44dab5585c6fa197046#file-icdcodes-csv
+icd 10 sa codes:
+icd_10_sa_codes.xlsx
+https://www.kaggle.com/datasets/gingfrecs03/icd-10-version2019
+
+icd 11 who codes:
+icd_11_who_codes.xlsx
+https://icd.who.int/browse/2025-01/mms/en
