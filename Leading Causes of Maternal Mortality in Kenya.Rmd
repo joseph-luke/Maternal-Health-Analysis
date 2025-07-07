@@ -1662,16 +1662,163 @@ df_icd_codes <- bind_rows(
   df_icd_11_who,
 )
 
-# Export for ML in python:
-write_csv(
-  df_icd_codes,
-  "../data/raw/all_icd_codes.csv"
-)
-write_csv(
-  data.frame(code = as.character(unique_codes)),
-  "../data/raw/dataset_codes.csv"
-) # make sure to open as str in python
+# # Export for ML in python:
+# write_csv(
+#   df_icd_codes,
+#   "../data/raw/all_icd_codes.csv"
+# )
+# write_csv(
+#   data.frame(code = as.character(unique_codes)),
+#   "../data/raw/dataset_codes.csv"
+# ) # make sure to open as str in python
 ```
+
+
+```{r}
+# Load in code-to-code dictionary
+clean_code_dictionary <- read_csv("../data/processed/code_to_code_dictionary.csv",
+  col_types = cols(.default = "c")
+)
+
+glimpse(clean_code_dictionary)
+
+# Was confused about matching; looks like this does the trick:
+# pull(clean_code_dictionary[143,1]) == str_to_lower(pull(df[367,"direct_cause_of_death_code"]))
+# Must be because of the str_to_lower I implemented
+
+# Messy, but I'll do this here
+df <- df |>
+  mutate(
+    direct_cause_of_death_code = str_to_lower(direct_cause_of_death_code)
+  )
+```
+
+```{r}
+df_code <- df |>
+  left_join(clean_code_dictionary,
+    by = c("direct_cause_of_death_code" = "code")
+  )
+
+# Pivot longer, count code frequency, and later, keep the primary code for each row that occurs the most across the dataset
+df_code_long <- df_code |>
+  mutate(row_id = row_number()) |>
+  pivot_longer(
+    cols = starts_with("correction_"),
+    names_to = "correction_col",
+    values_to = "primary_code"
+  ) |>
+  filter(!is.na(primary_code))
+
+code_prevalence <- df_code_long |>
+  count(primary_code)
+
+df_code_long <- df_code_long |>
+  left_join(code_prevalence, by = "primary_code")
+
+primary_code_df <- df_code_long |>
+  group_by(row_id) |>
+  arrange(desc(n)) |>
+  filter(!str_starts(primary_code, "x")) |> # Modifier codes
+  slice(1) |> # Highest-prevalence-code
+  ungroup() |>
+  select(row_id, primary_code = primary_code)
+
+df_code <- df_code |>
+  mutate(row_id = row_number()) |>
+  left_join(primary_code_df, by = "row_id") |>
+  select(-row_id, -starts_with("correction_"))
+
+# # True; No NAs introduced:
+# sum(!is.na(df_code$primary_code)) / nrow(df_code) == sum(!is.na(df$direct_cause_of_death_code)) / nrow(df)
+
+# Relocate primary code column to sensible position
+df_code <- df_code |>
+  relocate(primary_code, .before = direct_cause_of_death_code)
+```
+
+Now, we can see what the dataset reports as the leading causes of maternal mortality
+
+```{r}
+df_code <- df_code |>
+  mutate(primary_code_group = 
+    ifelse(
+      !is.na(str_extract(primary_code, ".*(?=\\.)")),
+      str_extract(primary_code, ".*(?=\\.)"),
+      primary_code
+      )) |>
+  relocate(primary_code_group, .after = hospital_ward)
+
+df_icd_who <- bind_rows(df_icd_10_who,
+                       df_icd_11_who)
+
+# Find codes not included in the grouped ICD from WHO
+# We will use df_icd_codes to find their descriptions
+setdiff(df_code$primary_code_group, df_icd_who$code)
+
+# df_code_map will map groups to conditions
+df_code_map <- df_code |>
+  select(primary_code_group) |>
+  drop_na() |>
+  left_join(df_icd_who, 
+            by = c("primary_code_group" = "code")) |>
+   distinct(primary_code_group, .keep_all = TRUE)
+
+df_code_map <- df_icd_codes |>
+  distinct(code, .keep_all = TRUE) |>
+  right_join(df_code_map,
+            by = c("code" = "primary_code_group")) |>
+  mutate(description = coalesce(description.x,
+                                description.y)) |> # coalesce grabs the values from df_icd_codes
+  select(-c(description.x, description.y))
+
+```
+
+```{r}
+df_code_map <- df_code_map |>
+  mutate(group = str_sub(code, start = 1, end = 3))
+
+# Manually create mapping
+df_code_map_2 <- df_code_map |>
+  group_by(group) |>
+  slice(1) |>
+  ungroup()
+
+# write_csv(df_code_map_2, "../data/raw/description_to_code_dictionary.csv")
+df_code_map_2 <- read_csv("../data/processed/description_to_code_dictionary.csv",
+                          col_types = cols(.default = "c")) |>
+  mutate(
+    across(everything(), str_to_lower),
+    group = str_replace(as.character(group), "\\.00e\\+0", "e")
+         )
+
+
+```
+
+```{r}
+df_code_map_3 <- df_code_map |>
+  left_join(df_code_map_2,
+            by = c("group" = "group")) |>
+  rename(code = code.x,
+         cause_of_mortality = description.y) |>
+  select(-c(description.x, group, code.y))
+
+df_mm_causes <- df_code |>
+  left_join(df_code_map_3,
+            by = c("primary_code_group" = "code")) |>
+  relocate(cause_of_mortality, .after = hospital_ward)
+
+```
+
+
+```{r}
+# Tabulate leading causes of maternal mortality
+df_mm_causes <- df_mm_causes |>
+  drop_na(cause_of_mortality)
+
+```
+
+
+
 
 
 
