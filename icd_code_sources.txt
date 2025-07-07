@@ -1,5 +1,8 @@
 icd 10 codes:
 https://www.cms.gov/medicare/coordination-benefits-recovery/overview/icd-code-lists
 
+icd 10 who codes:
+https://www.kaggle.com/datasets/gingfrecs03/icd-10-version2019
+
 icd 11 codes:
 https://gist.github.com/pigeonflight/9a146e8bad13b44dab5585c6fa197046#file-icdcodes-csv

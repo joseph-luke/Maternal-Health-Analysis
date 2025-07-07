@@ -3,6 +3,7 @@ ctitle: Leading Causes of Maternal Mortality in Kenya
 author: "Joseph Nthumba"
 date: "2025-06-29"
 output:
+  word_document: default
   html_document: default
   pdf_document: default
 engine: jupyter
@@ -1500,7 +1501,7 @@ ggsave("counts_by_county_and_year.png",
 )
 ```
 
-### Leading causes of maternal mortlaity: clinical perspective
+### Leading causes of maternal mortality: clinical perspective
 
 Here, we finally analyse what the database reports to be the causes of
 maternal mortality. For now, we will simply look at the column
@@ -1539,10 +1540,10 @@ Extract ICD column. Convert to lowercase and remove all non-alphanumeric charact
 unique_codes <- df |>
   filter(!is.na(direct_cause_of_death_code)) |>
   mutate(
-  code = direct_cause_of_death_code,
-  code = str_to_lower(code),
-  code = str_replace_all(code, "[^a-z0-9]", "")  # remove non-alphanumeric
-) |>
+    code = direct_cause_of_death_code,
+    code = str_to_lower(code),
+    # code = str_replace_all(code, "[^a-z0-9]", "")  # remove non-alphanumeric
+  ) |>
   filter(!is.na(code)) |>
   pull(code) |> # Grab elements from column using pull
   unique()
@@ -1553,22 +1554,42 @@ df_icd_10 <- read_xlsx("../data/raw/icd_10_codes.xlsx") |>
   rename(
     description = short_description_valid_icd_10_fy2025
   ) |>
-  select(code,
-         description) |>
+  select(
+    code,
+    description
+  ) |>
   mutate(
     across(
       everything(),
       str_to_lower
     ),
-    code = str_replace_all(code, "[^a-z0-9]", "")
+    # code = str_replace_all(code, "[^a-z0-9]", "")
   )
 
+# Import and clean ICD 10 codes
+df_icd_10_who <- read_csv("../data/raw/icd_10_who_codes.csv") |>
+  clean_names() |>
+  rename(
+    code = sub_code,
+    description = definition
+  ) |>
+  select(
+    code,
+    description
+  ) |>
+  mutate(
+    across(
+      everything(),
+      str_to_lower
+    ),
+    # code = str_replace_all(code, "[^a-z0-9]", "")
+  )
 
 # Import and clean ICD 11 codes
 df_icd_11 <- read_csv("../data/raw/icd_11_codes.csv",
-                           col_names = FALSE) |>
+  col_names = FALSE
+) |>
   clean_names() |>
-
   rename(
     code = x1,
     description = x2
@@ -1578,19 +1599,25 @@ df_icd_11 <- read_csv("../data/raw/icd_11_codes.csv",
       everything(),
       str_to_lower
     ),
-    code = str_replace_all(code, "[^a-z0-9]", "")
+    # code = str_replace_all(code, "[^a-z0-9]", "")
   )
 
 # Join into 1 ICD dataframe
-df_icd_codes <- bind_rows(df_icd_10,
-                          df_icd_11)
+df_icd_codes <- bind_rows(
+  df_icd_10,
+  df_icd_10_who,
+  df_icd_11
+)
 
 # Export for ML in python:
-write_csv(df_icd_codes,
-          "../data/raw/icd_codes.csv")
-write_csv(data.frame(code = as.character(unique_codes)),
-          "../data/raw/dataset_codes.csv") # make sure to open as str in python
-
+write_csv(
+  df_icd_codes,
+  "../data/raw/icd_codes.csv"
+)
+write_csv(
+  data.frame(code = as.character(unique_codes)),
+  "../data/raw/dataset_codes.csv"
+) # make sure to open as str in python
 ```
 
 
