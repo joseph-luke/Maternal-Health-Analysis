@@ -54,7 +54,9 @@ pacman::p_load(
   units,
   RColorBrewer,
   GGally,
-  readxl
+  readxl,
+  kableExtra,
+  flextable
 )
 
 # Style document
@@ -295,6 +297,11 @@ From analysis here and in Excel, we find:
 > random effect!). Therefore, processing all the records from a facility
 > together will help us extract as much info as efficiently as possible,
 > with an approach tailored to each facility's reporting conventions.
+
+Let's compile some summary statistics
+
+```{r}
+```
 
 ```{r}
 # # Below, I played around a little with code, cutting, pasting, etc, to
@@ -642,7 +649,7 @@ ggsave("reported_deaths_trends_by_year.png",
 
 We also compile a density plot of the ages of the mothers who passed:
 
-```{r, warning=FALSE, message=FALSE, fig.align='center'}
+```{r fig.align='center', fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
 # Create a dataframe for the age graphs
 df_graph_age <- df |>
   mutate(year = year(report_date)) |>
@@ -665,6 +672,7 @@ ggplot(
     color = NA,
     adjust = 0.6
   ) +
+
   # Dots
   geom_sina(
     aes(color = factor(year)),
@@ -672,28 +680,55 @@ ggplot(
     alpha = 0.5,
     maxwidth = 0.9
   ) +
-  # Make the medians visible
-  stat_summary(
-    fun = median,
-    geom = "crossbar",
-    width = 0.8,
-    color = "gray80",
-    fatten = 1.3,
-    show.legend = FALSE,
-    size = 1.5,
-  ) +
+
   # Median marks
+
+  # Make the error bars pop out
   stat_summary(
     fun = median,
-    geom = "crossbar",
-    width = 0.9,
-    color = "black",
-    fatten = 1.5,
+    fun.min = function(a) {
+      quantile(a, 0.25)
+    },
+    fun.max = function(b) {
+      quantile(b, 0.75)
+    },
+    color = "white",
+    geom = "pointrange",
     show.legend = FALSE,
-    size = 0.6
+    size = 0,
+    linewidth = 2.5,
+    alpha = 0.8
+  ) +
+
+  # Plot the IQR
+  stat_summary(
+    fun = median,
+    fun.min = function(a) {
+      quantile(a, 0.25)
+    },
+    fun.max = function(b) {
+      quantile(b, 0.75)
+    },
+    color = "grey30",
+    geom = "pointrange",
+    show.legend = FALSE,
+    size = 0,
+    linewidth = 0.7,
+    alpha = 0.8
+  ) +
+
+  # Plot medians
+  stat_summary(
+    fun = median,
+    geom = "point",
+    shape = 21,
+    fill = "white",
+    col = "grey10",
+    show.legend = FALSE,
+    size = 3
   ) +
   labs(
-    title = "Age distribution of maternal mortality<br><span style='font-size:10pt;'>Median age shown for each year</span>",
+    title = "Age distribution of maternal mortality<br><span style='font-size:10pt;'>Median age and interquartile range shown for each year</span>",
     x = "Age at death<br>(Years)",
     y = "Year"
   ) +
@@ -712,6 +747,7 @@ ggplot(
   ) +
   coord_flip()
 
+
 ggsave("age_of_mothers_at_death.png",
   path = "../data/figures",
   width = 8,
@@ -719,6 +755,7 @@ ggsave("age_of_mothers_at_death.png",
   dpi = 300
 )
 ```
+
 
 I downloaded health facility coordinate data from
 <https://hub.arcgis.com/datasets/Esri-EA>::health-facilities-in-kenya/explore
@@ -730,6 +767,7 @@ I found the unique facility url for all the facilities that were missing
 coordinate data. Below, we loop through these urls and try to extract as
 much location information as possible, and then we input manually
 discovered data (Google maps).
+
 
 ```{r}
 # Find the facilities + facility codes that are missing coordinates
@@ -1515,7 +1553,7 @@ the dataset's diagnostic columns.
 # Saved workspace
 # save.image(file = "analysis_workspace.RData")
 # Load workspace
-load("analysis_workspace.RData")
+# load("analysis_workspace.RData")
 # Then, load libraries using pacman chunk above
 ```
 
@@ -1552,7 +1590,7 @@ unique_codes <- df |>
 # Next, import, clean, and join ICD dictionaries
 
 # Import and clean ICD 10 codes
-df_icd_10_us <- read_xlsx("../data/raw/icd_10_us_codes.xlsx") |>
+df_icd_10_us <- read_xlsx("../data/raw/icd_10_us_codes.xlsx", ) |>
   clean_names() |>
   rename(
     description = short_description_valid_icd_10_fy2025
@@ -1674,7 +1712,7 @@ df_icd_codes <- bind_rows(
 ```
 
 
-```{r}
+```{r include=FALSE}
 # Load in code-to-code dictionary
 clean_code_dictionary <- read_csv("../data/processed/code_to_code_dictionary.csv",
   col_types = cols(.default = "c")
@@ -1738,18 +1776,22 @@ df_code <- df_code |>
 
 Now, we can see what the dataset reports as the leading causes of maternal mortality
 
-```{r}
+```{r include=FALSE}
 df_code <- df_code |>
-  mutate(primary_code_group = 
-    ifelse(
-      !is.na(str_extract(primary_code, ".*(?=\\.)")),
-      str_extract(primary_code, ".*(?=\\.)"),
-      primary_code
-      )) |>
+  mutate(
+    primary_code_group =
+      ifelse(
+        !is.na(str_extract(primary_code, ".*(?=\\.)")),
+        str_extract(primary_code, ".*(?=\\.)"),
+        primary_code
+      )
+  ) |>
   relocate(primary_code_group, .after = hospital_ward)
 
-df_icd_who <- bind_rows(df_icd_10_who,
-                       df_icd_11_who)
+df_icd_who <- bind_rows(
+  df_icd_10_who,
+  df_icd_11_who
+)
 
 # Find codes not included in the grouped ICD from WHO
 # We will use df_icd_codes to find their descriptions
@@ -1759,18 +1801,21 @@ setdiff(df_code$primary_code_group, df_icd_who$code)
 df_code_map <- df_code |>
   select(primary_code_group) |>
   drop_na() |>
-  left_join(df_icd_who, 
-            by = c("primary_code_group" = "code")) |>
-   distinct(primary_code_group, .keep_all = TRUE)
+  left_join(df_icd_who,
+    by = c("primary_code_group" = "code")
+  ) |>
+  distinct(primary_code_group, .keep_all = TRUE)
 
 df_code_map <- df_icd_codes |>
   distinct(code, .keep_all = TRUE) |>
   right_join(df_code_map,
-            by = c("code" = "primary_code_group")) |>
-  mutate(description = coalesce(description.x,
-                                description.y)) |> # coalesce grabs the values from df_icd_codes
+    by = c("code" = "primary_code_group")
+  ) |>
+  mutate(description = coalesce(
+    description.x,
+    description.y
+  )) |> # coalesce grabs the values from df_icd_codes
   select(-c(description.x, description.y))
-
 ```
 
 ```{r}
@@ -1785,42 +1830,162 @@ df_code_map_2 <- df_code_map |>
 
 # write_csv(df_code_map_2, "../data/raw/description_to_code_dictionary.csv")
 df_code_map_2 <- read_csv("../data/processed/description_to_code_dictionary.csv",
-                          col_types = cols(.default = "c")) |>
+  col_types = cols(.default = "c")
+) |>
   mutate(
     across(everything(), str_to_lower),
     group = str_replace(as.character(group), "\\.00e\\+0", "e")
-         )
-
-
+  )
 ```
 
 ```{r}
 df_code_map_3 <- df_code_map |>
   left_join(df_code_map_2,
-            by = c("group" = "group")) |>
-  rename(code = code.x,
-         cause_of_mortality = description.y) |>
+    by = c("group" = "group")
+  ) |>
+  rename(
+    code = code.x,
+    cause_of_mortality = description.y
+  ) |>
   select(-c(description.x, group, code.y))
 
 df_mm_causes <- df_code |>
   left_join(df_code_map_3,
-            by = c("primary_code_group" = "code")) |>
+    by = c("primary_code_group" = "code")
+  ) |>
   relocate(cause_of_mortality, .after = hospital_ward)
-
 ```
 
 
-```{r}
+```{r, fig.align='center'}
 # Tabulate leading causes of maternal mortality
-df_mm_causes <- df_mm_causes |>
-  drop_na(cause_of_mortality)
+cause_year_table <- df_mm_causes |>
+  mutate(
+    cause_label = if_else(is.na(cause_of_mortality), "Missing",
+      str_to_sentence(cause_of_mortality)
+    ),
+    year = year(report_date)
+  ) |>
+  group_by(year, cause_label) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from = year,
+    values_from = n,
+    values_fill = 0
+  ) |>
+  mutate(Total = rowSums(across(where(is.numeric)))) |>
+  mutate(
+    cause_label = case_when(
+      cause_label == "Covid-19" ~ "COVID-19",
+      TRUE ~ cause_label
+    )
+  )
 
+# Calculate column totals
+year_totals <- cause_year_table |>
+  summarise(across(where(is.numeric), sum))
+
+# Create percentage table
+percentage_table <- cause_year_table |>
+  select(-Total) |>
+  mutate(across(
+    where(is.numeric),
+    ~ round(100 * .x / year_totals[[cur_column()]], 1)
+  )) |>
+  mutate(Total = round(100 * cause_year_table$Total / sum(cause_year_table$Total), 1))
+
+year_cols <- setdiff(names(cause_year_table), "cause_label")
+combined_table <- cause_year_table |>
+  mutate(across(
+    all_of(year_cols),
+    ~ paste0(
+      get(cur_column(), pos = cause_year_table),
+      " (", get(cur_column(), pos = percentage_table), "%)"
+    )
+  ))
+
+# Calculate totals for the totals row
+year_totals_vector <- year_totals |> unlist()
+grand_total <- sum(year_totals_vector[names(year_totals_vector) != "Total"])
+
+# Create totals row
+totals_row <- tibble(cause_label = "Total") |>
+  bind_cols(
+    map_dfc(year_cols, function(colname) {
+      val <- year_totals_vector[[colname]]
+      if (colname == "Total") {
+        pct <- 100.0
+      } else {
+        pct <- round(100 * val / grand_total, 1)
+      }
+      tibble(!!colname := paste0(val, " (", pct, "%)"))
+    })
+  )
+
+# Sort by total count and add totals row
+final_table <- combined_table |>
+  mutate(Total_numeric = as.numeric(str_extract(Total, "^[0-9]+"))) |>
+  arrange(desc(Total_numeric)) |>
+  select(-Total_numeric) |>
+  bind_rows(totals_row)
+
+final_table |>
+  knitr::kable(
+    col.names = c("Cause of mortality", names(final_table)[-1]),
+    caption = "Causes of maternal mortality by year",
+    align = c("l", rep("r", ncol(final_table) - 1)),
+    format = "simple"
+  ) |>
+  kableExtra::kable_styling(
+    bootstrap_options = c("striped", "hover"),
+    full_width = TRUE,
+    position = "center"
+  ) |>
+  kableExtra::row_spec(
+    nrow(final_table),
+    bold = TRUE,
+    hline_after = TRUE
+  ) |>
+  kableExtra::footnote(
+    general = "Count (% of yearly total)",
+    general_title = "Note:",
+    footnote_as_chunk = TRUE
+  )
 ```
 
+```{r message=FALSE, warning=FALSE}
+# Table for export as png
+final_table_ft <- final_table |>
+  flextable() |>
+  set_header_labels(
+    cause_label = "Cause of mortality",
+    Total = "Total"
+  ) |>
+  add_header_row(
+    values = "Causes of maternal mortality by year",
+    colwidths = ncol(final_table)
+  ) |>
+  align(align = "right", part = "body") |>
+  align(align = "left", j = "cause_label", part = "body") |>
+  align(align = "center", part = "header") |>
+  bold(part = "header") |>
+  bold(i = nrow(final_table), part = "body") |>
+  border_remove() |>
+  hline_top(border = fp_border_default(width = 2), part = "header") |>
+  hline_bottom(border = fp_border_default(width = 2), part = "header") |>
+  hline_bottom(border = fp_border_default(width = 1), part = "body") |>
+  hline(i = nrow(final_table) - 1, border = fp_border_default(width = 1), part = "body") |>
+  autofit() |>
+  add_footer_lines("Count (% of yearly total)") |>
+  bg(part = "all", bg = "white")
 
+# final_table_ft
 
-
-
-
-
-
+# Save as png
+# save_as_image(final_table_ft,
+#   path = "../data/figures/causes_of_maternal_mortality.png",
+#   width = 12, height = 8, res = 300, expand = 10,
+#   zoom = 2,
+#   background = "white"
+# )
+```
