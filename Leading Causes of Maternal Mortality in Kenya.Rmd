@@ -119,6 +119,7 @@ df <- anti_join(df,
 print(length(unique(df$event)) == nrow(df)) # We now have unique rows/events
 ```
 
+
 Now we define the state space of our dataset. We must precisely specify
 the values each variable in our dataset is allowed to take.
 
@@ -487,6 +488,82 @@ df <- df |>
 2003 was meant to be 2023. For increased analytical clarity, I only
 included 2020-2024 data in our analysis.
 
+Here, I import the facility birth data to normalize our MM data and find MMR. (09/07/25).
+
+```{r}
+# Using year, month, and facility id in the facility dataset to match data in patient-level df
+df <- df |>
+  mutate(
+    year = year(report_date),
+    month = month(report_date)
+  ) |>
+  relocate(
+    c(year, month),
+    .after = report_date
+  ) |>
+  drop_na(facility_code)
+```
+
+
+```{r}
+# Import dataset
+df2 <- read.csv("../data/raw/data_facility_joseph.csv")
+
+# In character columns, convert "" or "None" to NA
+df2 <- df2 |>
+  mutate(across(
+    where(is.character),
+    ~ na_if(.x, "")
+  )) |>
+  mutate(across(
+    where(is.character),
+    ~ na_if(.x, "None")
+  ))
+
+# Rename columns for convenience and clarity.
+# We will use the live birth counts (even though there are more missing values in that column than in the surviving infants column) because I think we can't correlate to strongly when we use data for infants born in different months.
+df3 <- df2 |>
+  rename(
+    report_date = periodid,
+    facility_code = organisationunitcode,
+    live_births = MOH.711.Live.birth
+  ) |>
+  mutate(
+    facility_code = as.integer(facility_code),
+    year = year(parse_date_time(periodname, "%B %Y")),
+    month = month(parse_date_time(periodname, "%B %Y"))
+  ) |>
+  select(
+    c(
+      facility_code,
+      year,
+      month,
+      live_births
+    )
+  ) |>
+  drop_na(
+    live_births,
+    facility_code
+  )
+
+
+intersect(df$facility_code, df3$facility_code)
+
+# 97.8% of the facilities we have in the patient-level data have some sort of live births data
+length(intersect(df$facility_code, df3$facility_code)) / length(unique(df$facility_code))
+
+df <- inner_join(
+  df,
+  df3,
+  by = c(
+    "year" = "year",
+    "month" = "month",
+    "facility_code" = "facility_code"
+  )
+)
+```
+
+
 ### Maternal mortality over time
 
 We can visualize the incidence of maternal mortality as reported by the
@@ -510,18 +587,36 @@ dataset
 # and use the count in that time to graph a line graph
 df_graph_time <- df |>
   group_by(
-    year = year(report_date),
-    month = month(report_date)
+    month,
+    year,
+    facility_code
   ) |>
-  summarise(count = n()) |>
+  summarise(
+    count = n(),
+    births = live_births
+  ) |>
+  slice(1) |>
   ungroup() |>
-  mutate(date = as_datetime(paste0(year, "-", month), format = "%Y-%m"))
+  mutate(date = as_datetime(paste0(year, "-", month), format = "%Y-%m")) |>
+  group_by(
+    month,
+    year,
+    date
+  ) |>
+  summarise(
+    count = sum(count),
+    births = sum(births)
+  ) |>
+  mutate(
+    rate = (count / births) * 100000
+  ) |>
+  ungroup()
 
 p <- ggplot(
   data = df_graph_time,
   mapping = aes(
     x = date,
-    y = count
+    y = rate
   )
 ) +
   geom_line(linewidth = 0.5) +
@@ -581,7 +676,7 @@ ggplot(
   data = df_graph_time,
   mapping = aes(
     x = date,
-    y = count,
+    y = rate,
     color = factor(year)
   )
 ) +
@@ -591,7 +686,7 @@ ggplot(
   ) +
   geom_smooth(
     data = df_graph_time |> filter(year == 2024),
-    aes(x = date, y = count, color = factor(year)),
+    aes(x = date, y = rate, color = factor(year)),
     linewidth = 0.8,
     method = "loess",
     se = FALSE,
@@ -599,7 +694,7 @@ ggplot(
   ) +
   geom_smooth(
     data = df_graph_time |> filter(year != 2024),
-    aes(x = date, y = count, color = factor(year)),
+    aes(x = date, y = rate, color = factor(year)),
     linewidth = 0.8,
     se = FALSE
   ) +
@@ -1989,3 +2084,82 @@ final_table_ft <- final_table |>
 #   background = "white"
 # )
 ```
+
+```{r}
+df_graph_time <- df_mm_causes |>
+  filter(cause_of_mortality == "pregnancy, childbirth or the puerperium") |>
+  group_by(
+    month,
+    year,
+    facility_code
+  ) |>
+  summarise(
+    count = n(),
+    births = live_births
+  ) |>
+  slice(1) |>
+  ungroup() |>
+  mutate(date = as_datetime(paste0(year, "-", month), format = "%Y-%m")) |>
+  group_by(
+    month,
+    year,
+    date
+  ) |>
+  summarise(
+    count = sum(count),
+    births = sum(births)
+  ) |>
+  mutate(
+    rate = (count / births) * 100000
+  ) |>
+  ungroup()
+
+p <- ggplot(
+  data = df_graph_time,
+  mapping = aes(
+    x = date,
+    y = rate
+  )
+) +
+  geom_line(linewidth = 0.5) +
+  geom_point(
+    size = 1.5,
+    shape = 21,
+    fill = "white"
+  ) +
+  scale_x_datetime(
+    breaks = as_datetime(
+      as.character(c(
+        seq(2020, 2025, by = 1)
+      )),
+      format = "%Y"
+    ),
+    minor_breaks = as_datetime(paste0(
+      as.character(c(
+        seq(2020, 2025, by = 1)
+      )),
+      "-07-02"
+    )),
+    labels = as.character(c(
+      seq(2020, 2025, by = 1)
+    ))
+  ) +
+  labs(
+    title = "Reported maternal deaths<br><span style='font-size:11pt;'>Jan 2020-Dec 2024</span>",
+    x = "Date of death report",
+    y = "Count<br><span style='font-size:9pt'>(not yet normalised)</span>"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_markdown(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    legend.position = "top",
+    legend.justification = "left",
+    axis.title.y = element_markdown()
+  )
+
+plot(p)
+```
+
